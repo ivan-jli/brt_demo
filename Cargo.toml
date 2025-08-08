@@ -1,0 +1,33 @@
+[package]
+name    = "qa-test"
+version = "0.0.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+cfg-if             = "1.0.0"
+esp-hal = { version = "1.0.0-rc.0", features = [ "esp32c3", "unstable" ] }
+esp-backtrace = { version = "0.17.0", features = [ "esp32c3", "panic-handler", "println" ] }
+defmt = "1.0.1"
+esp-bootloader-esp-idf = { version = "0.2.0", features = ["esp32c3"] }
+esp-println = { version = "0.15.0", features = ["auto", "esp32c3"] }
+critical-section = "1.2.0"
+#lis3dh = "0.4.3" # requires older embedded-hal
+embedded-hal = "1.0.0"
+lis3dh-async = "0.9.3"
+cassette = "0.3.0"
+embedded-hal-async = "1.0.0"
+
+[features]
+default = [ "esp32c3" ]
+esp32c3 = [
+"esp-backtrace/esp32c3", 
+"esp-hal/esp32c3", 
+]
+
+[profile.release]
+debug         = 2
+debug-assertions = true
+lto           = "fat"
+codegen-units = 1
