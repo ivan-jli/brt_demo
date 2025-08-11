@@ -65,6 +65,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1b8e56985ec62d17e9c1001dc89c88ecd7dc08e47eba5ec7c29c7b5eeecde967"
 
 [[package]]
+name = "brt_demo"
+version = "0.0.0"
+dependencies = [
+ "cassette",
+ "cfg-if",
+ "critical-section",
+ "defmt",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+ "esp-backtrace",
+ "esp-bootloader-esp-idf",
+ "esp-hal",
+ "esp-println",
+ "lis3dh-async",
+]
+
+[[package]]
 name = "bytemuck"
 version = "1.23.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -949,23 +966,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02b3e5e68a3a1a02aad3ec490a98007cbc13c37cbe84a3cd7b8e406d76e7f778"
 dependencies = [
  "unicode-ident",
-]
-
-[[package]]
-name = "qa-test"
-version = "0.0.0"
-dependencies = [
- "cassette",
- "cfg-if",
- "critical-section",
- "defmt",
- "embedded-hal 1.0.0",
- "embedded-hal-async",
- "esp-backtrace",
- "esp-bootloader-esp-idf",
- "esp-hal",
- "esp-println",
- "lis3dh-async",
 ]
 
 [[package]]

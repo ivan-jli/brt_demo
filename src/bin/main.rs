@@ -14,24 +14,29 @@ use esp_hal::{
     delay::Delay, gpio::{Event, Input, InputConfig, Io, Pull, WakeEvent}, handler, i2c::master::*, main, rtc_cntl::{
         reset_reason, sleep::{GpioWakeupSource, RtcSleepConfig, TimerWakeupSource, WakeSource, WakeTriggers, WakeupLevel}, wakeup_cause, Rtc, Rwdt, RwdtStage, SocResetReason
         
-    }, system::Cpu, time::Duration, timer::{timg::TimerGroup, PeriodicTimer, Timer}, DriverMode
+    }, system::Cpu, time::{Duration, Instant}, timer::{timg::TimerGroup, PeriodicTimer, Timer}, DriverMode
 };
 use esp_println::println;
 use critical_section::Mutex;
 use core::cell::RefCell;
 use lis3dh_async::{Lis3dh, SlaveAddr, IrqPin1Config, Interrupt1, InterruptConfig, InterruptMode};
+use brt_demo::movement::*;
+use brt_demo::led::*;
 
 static ACCEL_INT: Mutex<RefCell<Option<Input>>> = Mutex::new(RefCell::new(None));
 //RWDT usage example from esp_hal/rtc_cntl
 static RWDT: Mutex<RefCell<Option<Rwdt>>> = Mutex::new(RefCell::new(None));
 static HALL_INT: Mutex<RefCell<Option<Input>>> = Mutex::new(RefCell::new(None));
 
-static STATE: Mutex<RefCell<State>> = Mutex::new(RefCell::new(State::Sleeping));
+static MOVEMENT: Mutex<RefCell<Option<Movement>>> = Mutex::new(RefCell::new(None));
+static STATE: Mutex<RefCell<Option<State>>> = Mutex::new(RefCell::new(Some(State::Sleeping)));
+static ACCEL_LED: Mutex<RefCell<Option<Led>>> = Mutex::new(RefCell::new(None));
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
 #[main]
 fn main() -> ! {
+    let delay = Delay::new();
     let peripherals = esp_hal::init(esp_hal::Config::default());
     // Setting ISR handlers
     let mut io = Io::new(peripherals.IO_MUX);
@@ -69,6 +74,7 @@ fn main() -> ! {
         // .with_pull(Pull::Down), //LIS3DH 38/54 DocID17530 Rev 2: default INT_POLARITY 0 - active high
         .with_pull(Pull::Up), 
     );
+    delay.delay_millis(100); // wait for the pullups to charge any capacitence
     
     // Setting accelerometer
     // let x = core::pin::pin!(accel_init(i2c));
@@ -79,7 +85,6 @@ fn main() -> ! {
     let reason = reset_reason(Cpu::ProCpu).unwrap_or(SocResetReason::ChipPowerOn);
     println!("Reset reason: {:?}", reason);
 
-    let delay = Delay::new();
     // let timer = TimerWakeupSource::new(CoreDuration::from_secs(10));
 
     // core::mem::drop(accel_int_in);
@@ -108,6 +113,12 @@ fn main() -> ! {
     //     accel_int_in.listen(Event::LowLevel);
     //     ACCEL_INT.borrow_ref_mut(cs).replace(accel_int_in);
     // });
+     
+    // LEDs
+    let accel_led = Led::new(2, 4);
+    critical_section::with(|cs| {
+        ACCEL_LED.borrow_ref_mut(cs).replace(accel_led);
+    });
 
     accel_int_in.wakeup_enable(true, WakeEvent::LowLevel).unwrap();
     // accel_int_in.wakeup_enable(true, WakeEvent::HighLevel).unwrap();
@@ -136,29 +147,6 @@ fn main() -> ! {
     }
 }
 
-struct Movement {
-    moving: u32,
-    still: u32,
-}
-
-impl Movement {
-    fn new() -> Self {
-        Movement {
-            moving: 0,
-            still: 0,
-        }
-    }
-    fn add_move(&mut self) {
-        self.moving += 1;
-    }
-    fn add_still(&mut self) {
-        self.still += 1;
-    }
-    fn is_moving(self) -> bool {
-        self.moving > 0 && self.moving > self.still
-    }
-}
-
 //using the example from esp_hal::gpio::Input listen()
 #[handler]
 fn gpio_handler() {
@@ -173,6 +161,11 @@ fn gpio_handler() {
         if accel_int.is_interrupt_set() {
             accel_int.clear_interrupt();
             println!("A ISR!");
+
+            let mut movement = MOVEMENT.borrow_ref_mut(cs);
+            if let Some(m) = movement.as_mut() {
+                m.register_move();
+            };
             // accel_int.unlisten();
             // loop {};
         }
@@ -180,8 +173,9 @@ fn gpio_handler() {
 }
 
 
+//periodic interrupt each 100 ms, when the uC is not sleeping
 #[handler]
-fn rtc_handler() { //periodic interrupt each x ms
+fn rtc_handler() { 
     critical_section::with(|cs| {
         println!("rtc ISR");
         let mut a = RWDT.borrow_ref_mut(cs);
@@ -190,6 +184,46 @@ fn rtc_handler() { //periodic interrupt each x ms
         };
         a.clear_interrupt();
         // a.unlisten();
+        let mut a = MOVEMENT.borrow_ref_mut(cs);
+        if let Some(movement) = a.as_mut() {
+            Instant::now();
+        }
+
+        let mut state = STATE.borrow_ref_mut(cs);
+        let state = state.as_mut();
+        if let Some(state) = state {
+            match state {
+                State::Sleeping => {
+                    //this is reached right after going out of sleep
+                    
+                },
+                State::Movement => {
+                    let mut movement = MOVEMENT.borrow_ref_mut(cs);
+                    if let Some(movement) = movement.as_mut() {
+                        if movement.is_10s_movement() {
+                            *state = State::Movement10sIndication;
+                            let mut accel_led = ACCEL_LED.borrow_ref_mut(cs);
+                            if let Some(accel_led) = accel_led.as_mut() {
+                                accel_led.reset();
+                            }
+                        }
+                    }
+                    else {
+                        *movement = Some(Movement::new());
+                    }
+                    
+                },
+                State::Movement10sIndication => {
+                    let mut accel_led = ACCEL_LED.borrow_ref_mut(cs);
+                    if let Some(accel_led) = accel_led.as_mut() {
+                        accel_led.tick();
+                    }
+                },
+                State::HallSensorStateChangeIndication => todo!(),
+            }
+
+        }
+
     });
 }
 
@@ -202,7 +236,7 @@ fn gpio_hall_sensor_handler() {
         };
         a.clear_interrupt();
         let mut state = STATE.borrow_ref_mut(cs);
-        *state = State::HallSensorStateChangeIndication;
+        // *state = State::HallSensorStateChangeIndication;
 
     });
 }
